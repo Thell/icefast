@@ -199,33 +199,28 @@ impl Ice {
         }
     }
 
-    /// Encrypts the provided data in-place using the optimal batch size
-    /// based on the workload size and available system threads.
+    /// Encrypts the provided data in-place using the optimal(?) batch size
     pub fn encrypt(&self, data: &mut [u8]) {
         let len = data.len();
         let threads = rayon::current_num_threads();
 
-        // 1. Serial Path: For small buffers or single-threaded environments.
-        // Your benches showed Batch64 is the undisputed serial champion.
+        // For small buffers or single-threaded environments.
         if len < 32_768 || threads < 2 {
             self.encrypt_blocks::<64>(data);
             return;
         }
 
-        // 2. Parallel Path: Dispatch based on "Workload Density".
+        // Dispatch based on "Workload Density".
         let bytes_per_thread = len / threads;
 
         if bytes_per_thread > 1_048_576 {
-            // Massive data per thread: Batch8 stays lean in the L1/L2 caches.
-            self.encrypt_blocks_par::<32>(data);
+            self.encrypt_blocks_par::<8>(data);
         } else {
-            // Moderate data: Batch32 provides the best balance of unrolling
-            // without exceeding register capacity on most modern CPUs.
             self.encrypt_blocks_par::<64>(data);
         }
     }
 
-    /// Decrypts the provided data in-place using the optimal batch size.
+    /// Decrypts the provided data in-place using the optimal(?) batch size.
     pub fn decrypt(&self, data: &mut [u8]) {
         let len = data.len();
         let threads = rayon::current_num_threads();
@@ -238,7 +233,7 @@ impl Ice {
         let bytes_per_thread = len / threads;
 
         if bytes_per_thread > 1_048_576 {
-            self.decrypt_blocks_par::<32>(data);
+            self.decrypt_blocks_par::<8>(data);
         } else {
             self.decrypt_blocks_par::<64>(data);
         }
