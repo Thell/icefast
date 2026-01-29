@@ -174,4 +174,44 @@ test encrypt_8x10k_fast_level0_bench      ... bench:     220,593 ns/iter (+/- 1,
 test encrypt_8x10k_fast_par_level0_bench  ... bench:      71,772 ns/iter (+/- 5,827)
 ```
 
+## Notes 3
+
+It seems there is a substantial SIMD boost available during the ICE rounds even
+though the SBOX lookup is still done via general register loads. The trick was
+just going wide enough to offset the cost of swapping between the vectors and
+registers. With a 4-round `ice_f` the benches stayed flat but with an 8-round
+`ice_f` the AVX2 pipeline was filled and effectively used. If someone had AVX512
+then a 16-round `ice_f` would likely be appropriate.
+
+I will be changing the benchmarks to not measure the allocation overhead and to
+more directly compare the width being used. The following benchmark serves as
+the 'after' of implementing the 8-round `ice_f` with the previouslt used setup.
+
+```
+test decrypt_16_fast_level0_bench         ... bench:          69 ns/iter (+/- 3)
+test decrypt_16_fast_level1_bench         ... bench:         130 ns/iter (+/- 5)
+test decrypt_16_fast_level2_bench         ... bench:         250 ns/iter (+/- 7)
+test decrypt_16x10k_fast_level0_bench     ... bench:     280,709 ns/iter (+/- 10,425)
+test decrypt_16x10k_fast_par_level0_bench ... bench:      63,032 ns/iter (+/- 7,250)
+test decrypt_8_fast_level0_bench          ... bench:          42 ns/iter (+/- 2)
+test decrypt_8_fast_level1_bench          ... bench:          71 ns/iter (+/- 3)
+test decrypt_8_fast_level2_bench          ... bench:         131 ns/iter (+/- 2)
+test decrypt_8x10k_fast_level0_bench      ... bench:     139,335 ns/iter (+/- 6,128)
+test decrypt_8x10k_fast_par_level0_bench  ... bench:      41,191 ns/iter (+/- 2,671)
+test encrypt_16_fast_level0_bench         ... bench:          65 ns/iter (+/- 2)
+test encrypt_16_fast_level1_bench         ... bench:         125 ns/iter (+/- 4)
+test encrypt_16_fast_level2_bench         ... bench:         250 ns/iter (+/- 16)
+test encrypt_16x10k_fast_level0_bench     ... bench:     276,949 ns/iter (+/- 11,750)
+test encrypt_16x10k_fast_par_level0_bench ... bench:      63,245 ns/iter (+/- 6,177)
+test encrypt_8_fast_level0_bench          ... bench:          36 ns/iter (+/- 1)
+test encrypt_8_fast_level1_bench          ... bench:          66 ns/iter (+/- 3)
+test encrypt_8_fast_level2_bench          ... bench:         128 ns/iter (+/- 4)
+test encrypt_8x10k_fast_level0_bench      ... bench:     137,755 ns/iter (+/- 21,205)
+test encrypt_8x10k_fast_par_level0_bench  ... bench:      41,527 ns/iter (+/- 7,189)
+```
+
+**New Benchmark Setup**
+
+
+
 [darkside]: http://www.darkside.com.au/ice/description.html
