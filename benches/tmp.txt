@@ -1,0 +1,41 @@
+Results:
+- Generalized setup Batch128 wins for 1024 text size
+- Generalized setup Batch32 wins for 1048576 text size
+- Generalized setup Batch8 wins for 33554432 and 1073741824 text sizes and overall
+
+Timer precision: 100 ns
+ice_bench                   fastest       │ slowest       │ median        │ mean          │ samples │ iters
+   decrypt_key8_level0_par                │               │               │               │         │
+   ├─ Batch8                              │               │               │               │         │
+   │  ├─ 1024               2.599 µs      │ 1.1 ms        │ 8.549 µs      │ 19.89 µs      │ 100     │ 100
+   │  ├─ 1048576            228.5 µs      │ 451.7 µs      │ 250.4 µs      │ 270.4 µs      │ 100     │ 100
+   │  ├─ 33554432           5.994 ms      │ 6.789 ms      │ 6.13 ms       │ 6.153 ms      │ 100     │ 100
+   │  ╰─ 1073741824         211.5 ms      │ 261.5 ms      │ 215.7 ms      │ 217.7 ms      │ 100     │ 100
+   ├─ Batch16                             │               │               │               │         │
+   │  ├─ 1024               2.599 µs      │ 162.5 µs      │ 11.24 µs      │ 13.63 µs      │ 100     │ 100
+   │  ├─ 1048576            287.2 µs      │ 361.6 µs      │ 313.2 µs      │ 313.7 µs      │ 100     │ 100
+   │  ├─ 33554432           7.635 ms      │ 8.194 ms      │ 7.83 ms       │ 7.841 ms      │ 100     │ 100
+   │  ╰─ 1073741824         263.4 ms      │ 297.2 ms      │ 267.2 ms      │ 268.9 ms      │ 100     │ 100
+   ├─ Batch32                             │               │               │               │         │
+   │  ├─ 1024               1.699 µs      │ 65.29 µs      │ 12.84 µs      │ 17.5 µs       │ 100     │ 100
+   │  ├─ 1048576            243.7 µs      │ 311.7 µs      │ 252.3 µs      │ 257.1 µs      │ 100     │ 100
+   │  ├─ 33554432           6.311 ms      │ 6.893 ms      │ 6.487 ms      │ 6.504 ms      │ 100     │ 100
+   │  ╰─ 1073741824         221.3 ms      │ 251.5 ms      │ 224.1 ms      │ 225.4 ms      │ 100     │ 100
+
+Non-Generalized 8-Way Tests
+      test decrypt_par_1024_bench       ... bench:      10,734 ns/iter (+/- 1,084)      => 10 µs
+      test decrypt_par_1048576_bench    ... bench:     299,490 ns/iter (+/- 25,129)     => 300 µs
+      test decrypt_par_33554432_bench   ... bench:   8,377,890 ns/iter (+/- 3,755,150)  => 8 ms
+      test decrypt_par_1073741824_bench ... bench: 252,209,070 ns/iter (+/- 28,198,755) => 252 ms
+
+   ├─ Batch64                             │               │               │               │         │
+   │  ├─ 1024               13.69 µs      │ 55.79 µs      │ 21.89 µs      │ 22.63 µs      │ 100     │ 100
+   │  ├─ 1048576            251.7 µs      │ 2.311 ms      │ 278.4 µs      │ 439.5 µs      │ 100     │ 100
+   │  ├─ 33554432           6.725 ms      │ 18.45 ms      │ 6.846 ms      │ 7.368 ms      │ 100     │ 100
+   │  ╰─ 1073741824         231.9 ms      │ 445.9 ms      │ 233.3 ms      │ 238.7 ms      │ 100     │ 100
+
+   ╰─ Batch128                            │               │               │               │         │
+      ├─ 1024               1.699 µs      │ 4.099 µs      │ 2.137 µs      │ 1.975 µs      │ 100     │ 800
+      ├─ 1048576            251.7 µs      │ 2.722 ms      │ 275.2 µs      │ 339 µs        │ 100     │ 100
+      ├─ 33554432           6.719 ms      │ 17.7 ms       │ 6.913 ms      │ 7.297 ms      │ 100     │ 100
+      ╰─ 1073741824         234.7 ms      │ 356.3 ms      │ 238 ms        │ 241.8 ms      │ 100     │ 100
