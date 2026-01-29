@@ -207,7 +207,7 @@ impl Ice {
 
         // 1. Serial Path: For small buffers or single-threaded environments.
         // Your benches showed Batch64 is the undisputed serial champion.
-        if len < 32_768 && threads < 2 {
+        if len < 32_768 || threads < 2 {
             self.encrypt_blocks::<64>(data);
             return;
         }
@@ -217,11 +217,11 @@ impl Ice {
 
         if bytes_per_thread > 1_048_576 {
             // Massive data per thread: Batch8 stays lean in the L1/L2 caches.
-            self.encrypt_blocks_par::<8>(data);
+            self.encrypt_blocks_par::<32>(data);
         } else {
             // Moderate data: Batch32 provides the best balance of unrolling
             // without exceeding register capacity on most modern CPUs.
-            self.encrypt_blocks_par::<32>(data);
+            self.encrypt_blocks_par::<64>(data);
         }
     }
 
@@ -238,9 +238,9 @@ impl Ice {
         let bytes_per_thread = len / threads;
 
         if bytes_per_thread > 1_048_576 {
-            self.decrypt_blocks_par::<8>(data);
-        } else {
             self.decrypt_blocks_par::<32>(data);
+        } else {
+            self.decrypt_blocks_par::<64>(data);
         }
     }
 
