@@ -29,6 +29,7 @@ pub struct Ice {
     pub key: IceKeyStruct,
     sbox: IceSboxes,
 }
+
 const BLOCK_SIZE: usize = 8;
 const AUTO_SERIAL_SIZE_LIMIT: usize = 32_768;
 const AUTO_PARALLEL_SIZE_LIMIT: usize = 1_048_576;
@@ -222,73 +223,101 @@ impl Ice {
         self.dispatch_auto::<1, true>(data, true);
     }
 
-    /// Encrypts the provided data in-place using dynamic dispatch
-    /// based on text length and number of threads
-    #[allow(unused)]
+    /// Encrypts the provided data in-place using dynamic dispatching
+    /// based on text length and number of available threads.
     pub fn encrypt_auto(&self, data: &mut [u8]) {
         let len = data.len();
-        let threads = rayon::current_num_threads();
-
-        // For small buffers or single-threaded environments.
-        if len < AUTO_SERIAL_SIZE_LIMIT || threads < 2 {
-            self.dispatch_auto::<8, false>(data, false);
-            return;
-        }
-
-        // Dispatch based on "Workload Density".
-        let bytes_per_thread = len / threads;
-
-        if bytes_per_thread > AUTO_PARALLEL_SIZE_LIMIT {
-            self.dispatch_auto::<8, false>(data, true);
-        } else {
-            self.dispatch_auto::<64, false>(data, true);
+        match len {
+            0..=15 => self.dispatch_auto::<1, false>(data, false),
+            16..=64 => self.dispatch_auto::<2, false>(data, false),
+            65..=128 => self.dispatch_auto::<8, false>(data, false),
+            129..=1024 => self.dispatch_auto::<32, false>(data, false),
+            1025..=8192 => self.dispatch_auto::<128, false>(data, false),
+            _ => {
+                if rayon::current_num_threads() < 2 {
+                    self.dispatch_auto::<128, false>(data, false);
+                    return;
+                }
+                self.dispatch_auto::<128, false>(data, true);
+            }
         }
     }
 
-    /// Decrypts the provided data in-place using dynamic dispatch
-    /// based on text length and number of threads
-    #[allow(unused)]
+    //     let len = data.len();
+    //     let threads = rayon::current_num_threads();
+
+    //     // For small buffers or single-threaded environments.
+    //     if len < AUTO_SERIAL_SIZE_LIMIT || threads < 2 {
+    //         self.dispatch_auto::<8, false>(data, false);
+    //         return;
+    //     }
+
+    //     // Dispatch based on "Workload Density".
+    //     let bytes_per_thread = len / threads;
+
+    //     if bytes_per_thread > AUTO_PARALLEL_SIZE_LIMIT {
+    //         self.dispatch_auto::<8, false>(data, true);
+    //     } else {
+    //         self.dispatch_auto::<64, false>(data, true);
+    //     }
+    // }
+
+    /// Decrypts the provided data in-place using dynamic dispatching
+    /// based on text length and number of available threads.
     pub fn decrypt_auto(&self, data: &mut [u8]) {
         let len = data.len();
-        let threads = rayon::current_num_threads();
-
-        // For small buffers or single-threaded environments.
-        if len < AUTO_SERIAL_SIZE_LIMIT || threads < 2 {
-            self.dispatch_auto::<8, true>(data, false);
-            return;
-        }
-
-        // Dispatch based on "Workload Density".
-        let bytes_per_thread = len / threads;
-
-        if bytes_per_thread > AUTO_PARALLEL_SIZE_LIMIT {
-            self.dispatch_auto::<8, true>(data, true);
-        } else {
-            self.dispatch_auto::<64, true>(data, true);
+        match len {
+            0..=15 => self.dispatch_auto::<1, true>(data, false),
+            16..=64 => self.dispatch_auto::<2, true>(data, false),
+            65..=128 => self.dispatch_auto::<8, true>(data, false),
+            129..=1024 => self.dispatch_auto::<32, true>(data, false),
+            1025..=8192 => self.dispatch_auto::<128, true>(data, false),
+            _ => {
+                if rayon::current_num_threads() < 2 {
+                    self.dispatch_auto::<128, true>(data, false);
+                    return;
+                }
+                self.dispatch_auto::<128, true>(data, true);
+            }
         }
     }
+    // pub fn decrypt_auto(&self, data: &mut [u8]) {
+    //     let len = data.len();
+    //     let threads = rayon::current_num_threads();
+
+    //     // For small buffers or single-threaded environments.
+    //     if len < AUTO_SERIAL_SIZE_LIMIT || threads < 2 {
+    //         self.dispatch_auto::<8, true>(data, false);
+    //         return;
+    //     }
+
+    //     // Dispatch based on "Workload Density".
+    //     let bytes_per_thread = len / threads;
+
+    //     if bytes_per_thread > AUTO_PARALLEL_SIZE_LIMIT {
+    //         self.dispatch_auto::<8, true>(data, true);
+    //     } else {
+    //         self.dispatch_auto::<64, true>(data, true);
+    //     }
+    // }
 
     /// Encrypts the provided data in-place using B 8-byte blocks
-    #[allow(unused)]
     pub fn encrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
         self.process_batch::<B, false>(data);
     }
 
     /// Encrypts the provided data in-place using B 8-byte blocks in parallel
-    #[allow(unused)]
     pub fn encrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
         data.par_chunks_exact_mut(B * BLOCK_SIZE)
             .for_each(|c| self.process_batch::<B, false>(c));
     }
 
     /// Decrypts the provided data in-place using B 8-byte blocks
-    #[allow(unused)]
     pub fn decrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
         self.process_batch::<B, true>(data);
     }
 
     /// Decrypts the provided data in-place using B 8-byte blocks in parallel
-    #[allow(unused)]
     pub fn decrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
         data.par_chunks_exact_mut(B * BLOCK_SIZE)
             .for_each(|c| self.process_batch::<B, true>(c));

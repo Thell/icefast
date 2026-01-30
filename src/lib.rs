@@ -1,2 +1,3 @@
-pub mod ice;
 pub mod icefast;
+
+pub use icefast::Ice;
