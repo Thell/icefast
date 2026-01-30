@@ -17,22 +17,22 @@ fn main() {
         "baseline" => {
             let mut test_ice = ice::ice::Ice::new(0);
             test_ice.key_set(&ice_key);
-                    let mut ciphertext = Vec::new();
-                    let mut ctext = [0; 8];
-                    let mut ptext = [0; 8];
-                    text.as_bytes().chunks_exact(8).for_each(|chunk| {
-                        ptext.copy_from_slice(chunk);
-                        test_ice.encrypt(&ptext, &mut ctext);
-                        ciphertext.extend_from_slice(&ctext);
-                    });
-                    let mut plaintext = Vec::new();
-                    ciphertext.chunks_exact(8).for_each(|chunk| {
-                        ctext.copy_from_slice(chunk);
-                        test_ice.decrypt(&ctext, &mut ptext);
-                        plaintext.extend_from_slice(&ptext);
-                    });
-                    assert_eq!(plaintext, text.as_bytes());
-        },
+            let mut ciphertext = Vec::new();
+            let mut ctext = [0; 8];
+            let mut ptext = [0; 8];
+            text.as_bytes().chunks_exact(8).for_each(|chunk| {
+                ptext.copy_from_slice(chunk);
+                test_ice.encrypt(&ptext, &mut ctext);
+                ciphertext.extend_from_slice(&ctext);
+            });
+            let mut plaintext = Vec::new();
+            ciphertext.chunks_exact(8).for_each(|chunk| {
+                ctext.copy_from_slice(chunk);
+                test_ice.decrypt(&ctext, &mut ptext);
+                plaintext.extend_from_slice(&ptext);
+            });
+            assert_eq!(plaintext, text.as_bytes());
+        }
         "optimized" => {
             let test_ice = ice::icefast::Ice::new(0, &ice_key);
             let mut data = text.as_bytes().to_owned();

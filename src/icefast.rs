@@ -29,6 +29,9 @@ pub struct Ice {
     pub key: IceKeyStruct,
     sbox: IceSboxes,
 }
+const BLOCK_SIZE: usize = 8;
+const AUTO_SERIAL_SIZE_LIMIT: usize = 32_768;
+const AUTO_PARALLEL_SIZE_LIMIT: usize = 1_048_576;
 
 const ICE_SMOD: [[i32; 4]; 4] = [
     [333, 313, 505, 369],
@@ -199,107 +202,117 @@ impl Ice {
         }
     }
 
-    /// Encrypts the provided data in-place using the optimal(?) batch size
+    /// Encrypts the provided data in-place using 8-byte blocks
     pub fn encrypt(&self, data: &mut [u8]) {
+        self.dispatch_auto::<1, false>(data, false);
+    }
+
+    /// Decrypts the provided data in-place using 8-byte blocks
+    pub fn decrypt(&self, data: &mut [u8]) {
+        self.dispatch_auto::<1, true>(data, false);
+    }
+
+    /// Encrypts the provided data in-place using 8-byte blocks in parallel
+    pub fn encrypt_par(&self, data: &mut [u8]) {
+        self.dispatch_auto::<1, false>(data, true);
+    }
+
+    /// Decrypts the provided data in-place using 8-byte blocks in parallel
+    pub fn decrypt_par(&self, data: &mut [u8]) {
+        self.dispatch_auto::<1, true>(data, true);
+    }
+
+    /// Encrypts the provided data in-place using dynamic dispatch
+    /// based on text length and number of threads
+    #[allow(unused)]
+    pub fn encrypt_auto(&self, data: &mut [u8]) {
         let len = data.len();
         let threads = rayon::current_num_threads();
 
         // For small buffers or single-threaded environments.
-        if len < 32_768 || threads < 2 {
-            self.encrypt_blocks::<64>(data);
+        if len < AUTO_SERIAL_SIZE_LIMIT || threads < 2 {
+            self.dispatch_auto::<8, false>(data, false);
             return;
         }
 
         // Dispatch based on "Workload Density".
         let bytes_per_thread = len / threads;
 
-        if bytes_per_thread > 1_048_576 {
-            self.encrypt_blocks_par::<8>(data);
+        if bytes_per_thread > AUTO_PARALLEL_SIZE_LIMIT {
+            self.dispatch_auto::<8, false>(data, true);
         } else {
-            self.encrypt_blocks_par::<64>(data);
+            self.dispatch_auto::<64, false>(data, true);
         }
     }
 
-    /// Decrypts the provided data in-place using the optimal(?) batch size.
-    pub fn decrypt(&self, data: &mut [u8]) {
+    /// Decrypts the provided data in-place using dynamic dispatch
+    /// based on text length and number of threads
+    #[allow(unused)]
+    pub fn decrypt_auto(&self, data: &mut [u8]) {
         let len = data.len();
         let threads = rayon::current_num_threads();
 
-        if len < 32_768 || threads < 2 {
-            self.decrypt_blocks::<64>(data);
+        // For small buffers or single-threaded environments.
+        if len < AUTO_SERIAL_SIZE_LIMIT || threads < 2 {
+            self.dispatch_auto::<8, true>(data, false);
             return;
         }
 
+        // Dispatch based on "Workload Density".
         let bytes_per_thread = len / threads;
 
-        if bytes_per_thread > 1_048_576 {
-            self.decrypt_blocks_par::<8>(data);
+        if bytes_per_thread > AUTO_PARALLEL_SIZE_LIMIT {
+            self.dispatch_auto::<8, true>(data, true);
         } else {
-            self.decrypt_blocks_par::<64>(data);
+            self.dispatch_auto::<64, true>(data, true);
         }
     }
 
-    pub fn encrypt_par(&self, data: &mut [u8]) {
-        self.dispatch::<false>(data, true);
-    }
-
-    pub fn decrypt_par(&self, data: &mut [u8]) {
-        self.dispatch::<true>(data, true);
-    }
-
-    /// Benchmarking hook for specific batch sizes in serial mode.
+    /// Encrypts the provided data in-place using B 8-byte blocks
     #[allow(unused)]
     pub fn encrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
         self.process_batch::<B, false>(data);
     }
 
-    /// Benchmarking hook for specific batch sizes in parallel mode.
+    /// Encrypts the provided data in-place using B 8-byte blocks in parallel
     #[allow(unused)]
     pub fn encrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
-        const BLOCK_SIZE: usize = 8;
-        data.par_chunks_exact_mut(B * BLOCK_SIZE).for_each(|chunk| {
-            self.process_batch::<B, false>(chunk);
-        });
+        data.par_chunks_exact_mut(B * BLOCK_SIZE)
+            .for_each(|c| self.process_batch::<B, false>(c));
     }
 
-    /// Benchmarking hook for specific batch sizes in serial mode.
+    /// Decrypts the provided data in-place using B 8-byte blocks
     #[allow(unused)]
     pub fn decrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
         self.process_batch::<B, true>(data);
     }
 
-    /// Benchmarking hook for specific batch sizes in parallel mode.
+    /// Decrypts the provided data in-place using B 8-byte blocks in parallel
     #[allow(unused)]
     pub fn decrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
-        const BLOCK_SIZE: usize = 8;
-        data.par_chunks_exact_mut(B * BLOCK_SIZE).for_each(|chunk| {
-            self.process_batch::<B, true>(chunk);
-        });
+        data.par_chunks_exact_mut(B * BLOCK_SIZE)
+            .for_each(|c| self.process_batch::<B, true>(c));
     }
 
-    fn dispatch<const DECRYPT: bool>(&self, data: &mut [u8], parallel: bool) {
+    fn dispatch_auto<const B: usize, const DECRYPT: bool>(&self, data: &mut [u8], parallel: bool) {
         assert!(data.len() % 8 == 0);
-        const B: usize = 8;
-        const B_BYTES: usize = B * 8;
+        let b_bytes: usize = B * BLOCK_SIZE;
 
         let (head, tail) = {
-            let len = (data.len() / B_BYTES) * B_BYTES;
+            let len = (data.len() / b_bytes) * b_bytes;
             data.split_at_mut(len)
         };
 
         if parallel {
-            head.par_chunks_exact_mut(B_BYTES).for_each(|chunk| {
-                self.process_batch::<B, DECRYPT>(chunk);
-            });
+            head.par_chunks_exact_mut(b_bytes)
+                .for_each(|c| self.process_batch::<B, DECRYPT>(c));
         } else {
-            head.chunks_exact_mut(B_BYTES).for_each(|chunk| {
-                self.process_batch::<B, DECRYPT>(chunk);
-            });
+            head.chunks_exact_mut(b_bytes)
+                .for_each(|c| self.process_batch::<B, DECRYPT>(c));
         }
 
-        tail.chunks_exact_mut(8).for_each(|block| {
-            self.process_batch::<1, DECRYPT>(block);
-        });
+        tail.chunks_exact_mut(BLOCK_SIZE)
+            .for_each(|b| self.process_batch::<1, DECRYPT>(b));
     }
 
     fn key_sched_build(&mut self, kb: &mut [u16; 4], n: usize, keyrot: &[i32]) {

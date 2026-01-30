@@ -151,7 +151,7 @@ fn encrypt_auto(bencher: divan::Bencher, len: usize) {
         .with_inputs(|| plain_text.clone())
         .bench_local_values(|mut buffer| {
             // This hits our new heuristic dispatcher
-            test_ice.encrypt(&mut buffer);
+            test_ice.encrypt_auto(&mut buffer);
             divan::black_box(buffer);
         });
 }
@@ -166,7 +166,7 @@ fn decrypt_auto(bencher: divan::Bencher, len: usize) {
         .with_inputs(|| cipher_text.clone())
         .bench_local_values(|mut buffer| {
             // This hits our new heuristic dispatcher
-            test_ice.decrypt(&mut buffer);
+            test_ice.decrypt_auto(&mut buffer);
             divan::black_box(buffer);
         });
 }
