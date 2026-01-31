@@ -31,8 +31,6 @@ pub struct Ice {
 }
 
 const BLOCK_SIZE: usize = 8;
-const AUTO_SERIAL_SIZE_LIMIT: usize = 32_768;
-const AUTO_PARALLEL_SIZE_LIMIT: usize = 1_048_576;
 
 const ICE_SMOD: [[i32; 4]; 4] = [
     [333, 313, 505, 369],
@@ -203,28 +201,48 @@ impl Ice {
         }
     }
 
-    /// Encrypts the provided data in-place using 8-byte blocks
+    /// Encrypts the provided data in-place using serial 8-byte block processing.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
     pub fn encrypt(&self, data: &mut [u8]) {
         self.dispatch_auto::<1, false>(data, false);
     }
 
-    /// Decrypts the provided data in-place using 8-byte blocks
+    /// Decrypts the provided data in-place using serial 8-byte block processing.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
     pub fn decrypt(&self, data: &mut [u8]) {
         self.dispatch_auto::<1, true>(data, false);
     }
 
-    /// Encrypts the provided data in-place using 8-byte blocks in parallel
+    /// Encrypts the provided data in-place using 8-byte blocks in parallel.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
     pub fn encrypt_par(&self, data: &mut [u8]) {
         self.dispatch_auto::<1, false>(data, true);
     }
 
-    /// Decrypts the provided data in-place using 8-byte blocks in parallel
+    /// Decrypts the provided data in-place using 8-byte blocks in parallel.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
     pub fn decrypt_par(&self, data: &mut [u8]) {
         self.dispatch_auto::<1, true>(data, true);
     }
 
-    /// Encrypts the provided data in-place using dynamic dispatching
-    /// based on text length and number of available threads.
+    /// Encrypts the provided data in-place.
+    ///
+    /// Dynamically selects an optimal batch size (1 to 128 blocks) based on input length.
+    /// Tail blocks are processed serially.
+    ///
+    /// Dispatches to the Rayon thread pool for buffers > 8 KB if available.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
     pub fn encrypt_auto(&self, data: &mut [u8]) {
         let len = data.len();
         match len {
@@ -243,27 +261,16 @@ impl Ice {
         }
     }
 
-    //     let len = data.len();
-    //     let threads = rayon::current_num_threads();
-
-    //     // For small buffers or single-threaded environments.
-    //     if len < AUTO_SERIAL_SIZE_LIMIT || threads < 2 {
-    //         self.dispatch_auto::<8, false>(data, false);
-    //         return;
-    //     }
-
-    //     // Dispatch based on "Workload Density".
-    //     let bytes_per_thread = len / threads;
-
-    //     if bytes_per_thread > AUTO_PARALLEL_SIZE_LIMIT {
-    //         self.dispatch_auto::<8, false>(data, true);
-    //     } else {
-    //         self.dispatch_auto::<64, false>(data, true);
-    //     }
-    // }
-
-    /// Decrypts the provided data in-place using dynamic dispatching
-    /// based on text length and number of available threads.
+    /// Decrypts the provided data in-place.
+    ///
+    /// Dynamically selects an optimal batch size (1 to 128 blocks) based on input length.
+    /// Tail blocks are processed serially.
+    ///
+    /// Dispatches to the Rayon thread pool for buffers > 8 KB if available.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
     pub fn decrypt_auto(&self, data: &mut [u8]) {
         let len = data.len();
         match len {
@@ -281,44 +288,53 @@ impl Ice {
             }
         }
     }
-    // pub fn decrypt_auto(&self, data: &mut [u8]) {
-    //     let len = data.len();
-    //     let threads = rayon::current_num_threads();
 
-    //     // For small buffers or single-threaded environments.
-    //     if len < AUTO_SERIAL_SIZE_LIMIT || threads < 2 {
-    //         self.dispatch_auto::<8, true>(data, false);
-    //         return;
-    //     }
-
-    //     // Dispatch based on "Workload Density".
-    //     let bytes_per_thread = len / threads;
-
-    //     if bytes_per_thread > AUTO_PARALLEL_SIZE_LIMIT {
-    //         self.dispatch_auto::<8, true>(data, true);
-    //     } else {
-    //         self.dispatch_auto::<64, true>(data, true);
-    //     }
-    // }
-
-    /// Encrypts the provided data in-place using B 8-byte blocks
+    /// Encrypts the provided data in-place using B 8-byte blocks.
+    ///
+    /// Tail blocks are not processed.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
     pub fn encrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len() % 8 == 0);
         self.process_batch::<B, false>(data);
     }
 
-    /// Encrypts the provided data in-place using B 8-byte blocks in parallel
+    /// Encrypts the provided data in-place using B 8-byte blocks in parallel.
+    ///
+    /// Tail blocks are not processed.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
     pub fn encrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len() % 8 == 0);
         data.par_chunks_exact_mut(B * BLOCK_SIZE)
             .for_each(|c| self.process_batch::<B, false>(c));
     }
 
     /// Decrypts the provided data in-place using B 8-byte blocks
+    ///
+    /// Tail blocks are not processed.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
     pub fn decrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len() % 8 == 0);
         self.process_batch::<B, true>(data);
     }
 
     /// Decrypts the provided data in-place using B 8-byte blocks in parallel
+    ///
+    /// Tail blocks are not processed.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
     pub fn decrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len() % 8 == 0);
         data.par_chunks_exact_mut(B * BLOCK_SIZE)
             .for_each(|c| self.process_batch::<B, true>(c));
     }

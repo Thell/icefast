@@ -1,15 +1,21 @@
 [package]
 name = "icefast"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+authors = ["Thell Fowler <thell@tbfowler.net>"]
+description = "A optimized parallel ICE encryption implementation with auto-dispatching logic and auto-vectorization."
+license = "Unlicense"
+repository = "https://github.com/Thell/icefast"
+readme = "README.md"
+keywords = ["encryption", "ice"]
+categories = ["cryptography", "algorithms"]
 
 [lib]
 name = "icefast"
 path = "src/lib.rs"
 
 [dependencies]
-# Windows alloc is noticably slower than the mimalloc allocator
-mimalloc = { version = "*", default-features = false }
+mimalloc = { version = "0.1", default-features = false }
 rayon = "1.11.0"
 
 [dev-dependencies]
