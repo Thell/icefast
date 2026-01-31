@@ -15,10 +15,10 @@ name = "icefast"
 path = "src/lib.rs"
 
 [dependencies]
-mimalloc = { version = "0.1", default-features = false }
 rayon = "1.11.0"
 
 [dev-dependencies]
+mimalloc = { version = "0.1", default-features = false }
 divan = "0.1.21"
 
 [profile.release]

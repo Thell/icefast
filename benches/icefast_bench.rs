@@ -66,7 +66,7 @@ macro_rules! define_size_benches {
             const LEN: usize = $size;
 
             #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128])]
-            fn decrypt_serial<C: BenchBatch>(bencher: divan::Bencher) {
+            fn decrypt<C: BenchBatch>(bencher: divan::Bencher) {
                 if C::BLOCKS * 8 > LEN { return; }
                 let ice = Ice::new(0, &KEY8);
                 let data = CIPHER_TEXT_8_LEVEL0.repeat(LEN / 8);
@@ -74,14 +74,14 @@ macro_rules! define_size_benches {
             }
 
             #[divan::bench]
-            fn auto_decrypt(bencher: divan::Bencher) {
+            fn decrypt_auto(bencher: divan::Bencher) {
                 let ice = Ice::new(0, &KEY8);
                 let data = CIPHER_TEXT_8_LEVEL0.repeat(LEN / 8);
                 bencher.counter(BytesCount::new(LEN)).with_inputs(|| data.clone()).bench_local_values(|mut b| ice.decrypt_auto(&mut b));
             }
 
             #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128])]
-            fn encrypt_serial<C: BenchBatch>(bencher: divan::Bencher) {
+            fn encrypt<C: BenchBatch>(bencher: divan::Bencher) {
                 if C::BLOCKS * 8 > LEN { return; }
                 let ice = Ice::new(0, &KEY8);
                 // Convert String to Vec<u8> to satisfy &mut [u8] requirement
@@ -90,7 +90,7 @@ macro_rules! define_size_benches {
             }
 
             #[divan::bench]
-            fn auto_encrypt(bencher: divan::Bencher) {
+            fn encrypt_auto(bencher: divan::Bencher) {
                 let ice = Ice::new(0, &KEY8);
                 let data = PLAIN_TEXT_8.repeat(LEN / 8).into_bytes();
                 bencher.counter(BytesCount::new(LEN)).with_inputs(|| data.clone()).bench_local_values(|mut b| ice.encrypt_auto(&mut b));
@@ -111,7 +111,7 @@ macro_rules! define_size_benches {
             }
 
             #[divan::bench]
-            fn auto_decrypt(bencher: divan::Bencher) {
+            fn decrypt_auto(bencher: divan::Bencher) {
                 let ice = Ice::new(0, &KEY8);
                 let data = CIPHER_TEXT_8_LEVEL0.repeat(LEN / 8);
                 bencher.counter(BytesCount::new(LEN)).with_inputs(|| data.clone()).bench_local_values(|mut b| ice.decrypt_auto(&mut b));
@@ -125,7 +125,7 @@ macro_rules! define_size_benches {
             }
 
             #[divan::bench]
-            fn auto_encrypt(bencher: divan::Bencher) {
+            fn encrypt_auto(bencher: divan::Bencher) {
                 let ice = Ice::new(0, &KEY8);
                 let data = PLAIN_TEXT_8.repeat(LEN / 8).into_bytes();
                 bencher.counter(BytesCount::new(LEN)).with_inputs(|| data.clone()).bench_local_values(|mut b| ice.encrypt_auto(&mut b));
@@ -135,28 +135,28 @@ macro_rules! define_size_benches {
 }
 
 // Micro-loads (Serial optimization focus)
-define_size_benches!(16, ser_size_16_b, small);
-define_size_benches!(32, ser_size_32_b, small);
-define_size_benches!(64, ser_size_64_b, small);
-define_size_benches!(128, ser_size_128_b, small);
-define_size_benches!(256, ser_size_256_b, small);
-define_size_benches!(512, ser_size_512_b, small);
-define_size_benches!(1024, ser_size_1_k, small);
-define_size_benches!(2048, ser_size_2_k, small);
+define_size_benches!(16, serial_b_16, small);
+define_size_benches!(32, serial_b_32, small);
+define_size_benches!(64, serial_b_64, small);
+define_size_benches!(128, serial_b_128, small);
+define_size_benches!(256, serial_b_256, small);
+define_size_benches!(512, serial_b_512, small);
+define_size_benches!(1024, serial_kb_1, small);
+define_size_benches!(2048, serial_kb_2, small);
 // Overlap - Serial
-define_size_benches!(4096, ser_size_4_k, small);
-define_size_benches!(8192, ser_size_8_k, small);
-define_size_benches!(16384, ser_size_16_k, small);
-define_size_benches!(32768, ser_size_32_k, small);
+define_size_benches!(4096, serial_kb_4, small);
+define_size_benches!(8192, serial_kb_8, small);
+define_size_benches!(16384, serial_kb_16, small);
+define_size_benches!(32768, serial_kb_32, small);
 // Overlap - Parallel
-define_size_benches!(4096, par_size_4_k, large);
-define_size_benches!(8192, par_size_8_k, large);
-define_size_benches!(16384, par_size_16_k, large);
-define_size_benches!(32768, par_size_32_k, large);
+define_size_benches!(4096, parallel_kb_4, large);
+define_size_benches!(8192, parallel_kb_8, large);
+define_size_benches!(16384, parallel_kb_16, large);
+define_size_benches!(32768, parallel_kb_32, large);
 // Macro-loads (Parallel optimization focus)
-define_size_benches!(65536, par_size_64_k, large);
-define_size_benches!(131072, par_size_128_k, large);
-define_size_benches!(262144, par_size_256_k, large);
-define_size_benches!(524288, par_size_512_k, large);
-define_size_benches!(1048576, par_size_1_m, large);
-define_size_benches!(33554432, par_size_32_m, large);
+define_size_benches!(65536, parallel_kb_64, large);
+define_size_benches!(131072, parallel_kb_128, large);
+define_size_benches!(262144, parallel_kb_256, large);
+define_size_benches!(524288, parallel_kb_512, large);
+define_size_benches!(1048576, parallel_mb_1, large);
+define_size_benches!(33554432, parallel_mb_32, large);

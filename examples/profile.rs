@@ -1,3 +1,6 @@
+//! Profile ICE implementation
+//! Usage: cargo run --release --example profile optimized 1000000
+//! Usage: cargo run --release --example profile optimized_par 1000000
 use mimalloc::MiMalloc;
 use std::env;
 
