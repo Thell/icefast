@@ -18,6 +18,12 @@ pub struct IceSboxes {
     pub s: [[u32; 1024]; 4],
 }
 
+impl Default for IceSboxes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IceSboxes {
     pub fn new() -> Self {
         Self { s: [[0; 1024]; 4] }
@@ -297,7 +303,7 @@ impl Ice {
     /// Panics if `data.len()` is not a multiple of 8.
     #[allow(unused)]
     pub fn encrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len() % 8 == 0);
+        assert!(data.len().is_multiple_of(8));
         self.process_batch::<B, false>(data);
     }
 
@@ -309,7 +315,7 @@ impl Ice {
     /// Panics if `data.len()` is not a multiple of 8.
     #[allow(unused)]
     pub fn encrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len() % 8 == 0);
+        assert!(data.len().is_multiple_of(8));
         data.par_chunks_exact_mut(B * BLOCK_SIZE)
             .for_each(|c| self.process_batch::<B, false>(c));
     }
@@ -322,7 +328,7 @@ impl Ice {
     /// Panics if `data.len()` is not a multiple of 8.
     #[allow(unused)]
     pub fn decrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len() % 8 == 0);
+        assert!(data.len().is_multiple_of(8));
         self.process_batch::<B, true>(data);
     }
 
@@ -334,13 +340,13 @@ impl Ice {
     /// Panics if `data.len()` is not a multiple of 8.
     #[allow(unused)]
     pub fn decrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len() % 8 == 0);
+        assert!(data.len().is_multiple_of(8));
         data.par_chunks_exact_mut(B * BLOCK_SIZE)
             .for_each(|c| self.process_batch::<B, true>(c));
     }
 
     fn dispatch_auto<const B: usize, const DECRYPT: bool>(&self, data: &mut [u8], parallel: bool) {
-        assert!(data.len() % 8 == 0);
+        assert!(data.len().is_multiple_of(8));
         let b_bytes: usize = B * BLOCK_SIZE;
 
         let (head, tail) = {
@@ -367,7 +373,7 @@ impl Ice {
             for j in 0..15 {
                 let curr_sk = &mut isk.val[j % 3];
                 for k in 0..4 {
-                    let curr_kb = &mut kb[((kr + k as i32) & 3) as usize];
+                    let curr_kb = &mut kb[((kr + k) & 3) as usize];
                     let bit = *curr_kb & 1;
                     *curr_sk = (*curr_sk << 1) | bit as u32;
                     *curr_kb = (*curr_kb >> 1) | ((bit ^ 1) << 15);
