@@ -1,14 +1,16 @@
 //! # Icefast
 //!
-//! A high-performance implementation of the ICE (Information Concealment Engine)
-//! encryption algorithm, optimized for AVX2 and AVX-512 auto-vectorization.
+//! A high-performance implementation of the
+//! [ICE (Information Concealment Engine)](https://www.darkside.com.au/ice/)
+//! encryption algorithm.
 //!
-//! ## High-Performance Vectorization
 //! `Icefast` is designed specifically to assist the LLVM compiler in performing
 //! **auto-vectorization**. By structuring internal loops with clear bounds and memory
 //! alignment, the library leverages **AVX2**, **AVX-512**, and **NEON** instruction
 //! sets where available. This allows for processing multiple 64-bit blocks in a single
 //! clock cycle.
+//!
+//! Supports ICE level 0, 1 and 2.
 //!
 //! ### Auto-Dispatch Logic
 //! The library provides intelligent dispatching to balance latency and throughput:
@@ -22,10 +24,11 @@
 //!   Operations on unaligned buffers will result in an explicit panic to ensure
 //!   data integrity.
 //!
-//! //! ## API Selection
+//! ## API Selection
 //!
 //! * **General Use**: Use `encrypt_auto` and `decrypt_auto`. These manage batch sizes
 //!   and thread dispatching automatically to find the best balance for the data size.
+//! * **Serial Processing**: Use `encypt` and `decrypt` to process 8-byte blocks serially.
 //! * **Manual Parallelism**: Use `encrypt_par` or `decrypt_par` if you know you want
 //!   multithreading regardless of the 8 KB default threshold.
 //! * **High-Frequency Loops**: Use `encrypt_blocks<B>` with a fixed `B` to provide

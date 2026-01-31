@@ -98,6 +98,12 @@ fn ice_perm32(mut x: u32) -> u32 {
 }
 
 impl Ice {
+    /// Create a new ICE instance.
+    ///
+    /// - `key` should be at least 8 bytes long.
+    /// - `level` must be in the range [0, 2].
+    ///
+    /// It is recommended to use Level 0 (or Thin-ICE) for most use cases for performance reasons.
     pub fn new(level: usize, key: &[u8]) -> Self {
         let mut ik = Ice {
             key: IceKeyStruct {
@@ -382,6 +388,7 @@ impl Ice {
         }
     }
 
+    /// Set the key to be used by the ICE instance.
     pub fn key_set(&mut self, key: &[u8]) {
         let levels = self.key.size;
         if levels == 1 && self.key.rounds == 8 {
