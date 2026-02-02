@@ -1,51 +1,17 @@
 use rayon::prelude::*;
 
-#[derive(Clone, Debug)]
-pub struct IceSubkey {
-    val: [u32; 3],
-}
-
-#[derive(Clone, Debug)]
-pub struct IceKeyStruct {
-    size: usize,
-    rounds: usize,
-    pub keysched: Vec<IceSubkey>,
-}
-
-#[repr(C, align(64))]
-#[derive(Clone, Debug)]
-pub struct IceSboxes {
-    pub s: [[u32; 1024]; 4],
-}
-
-impl Default for IceSboxes {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl IceSboxes {
-    pub fn new() -> Self {
-        Self { s: [[0; 1024]; 4] }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Ice {
-    pub key: IceKeyStruct,
-    sbox: IceSboxes,
-}
-
 const BLOCK_SIZE: usize = 8;
 
-const ICE_SMOD: [[i32; 4]; 4] = [
+const KEYROT: [i32; 16] = [0, 1, 2, 3, 2, 1, 3, 0, 1, 3, 2, 0, 3, 1, 0, 2];
+
+const ICE_SMOD: [[u32; 4]; 4] = [
     [333, 313, 505, 369],
     [379, 375, 319, 391],
     [361, 445, 451, 397],
     [397, 425, 395, 505],
 ];
 
-const ICE_SXOR: [[i32; 4]; 4] = [
+const ICE_SXOR: [[u32; 4]; 4] = [
     [0x83, 0x85, 0x9b, 0xcd],
     [0xcc, 0xa7, 0xad, 0x41],
     [0x4b, 0x2e, 0xd4, 0x33],
@@ -59,12 +25,10 @@ const ICE_PBOX: [u32; 32] = [
     0x00000002, 0x00000040, 0x00000800, 0x00001000, 0x00040000, 0x00100000, 0x02000000, 0x80000000,
 ];
 
-const KEYROT: [i32; 16] = [0, 1, 2, 3, 2, 1, 3, 0, 1, 3, 2, 0, 3, 1, 0, 2];
-
-fn gf_mult(mut a: u32, mut b: u32, m: u32) -> u32 {
+const fn gf_mult(mut a: u32, mut b: u32, m: u32) -> u32 {
     let mut res: u32 = 0;
     while b != 0 {
-        if b & 1 != 0 {
+        if (b & 1) != 0 {
             res ^= a;
         }
         a <<= 1;
@@ -76,7 +40,7 @@ fn gf_mult(mut a: u32, mut b: u32, m: u32) -> u32 {
     res
 }
 
-fn gf_exp7(b: u32, m: u32) -> u32 {
+const fn gf_exp7(b: u32, m: u32) -> u32 {
     if b == 0 {
         return 0;
     }
@@ -86,15 +50,55 @@ fn gf_exp7(b: u32, m: u32) -> u32 {
     gf_mult(b, x, m)
 }
 
-fn ice_perm32(mut x: u32) -> u32 {
+const fn ice_perm32(mut x: u32) -> u32 {
     let mut res: u32 = 0;
-    for pb in ICE_PBOX.iter().take(32) {
-        if x & 1 != 0 {
-            res |= pb;
+    let mut i = 0;
+    while i < 32 {
+        if (x & 1) != 0 {
+            res |= ICE_PBOX[i];
         }
         x >>= 1;
+        i += 1;
     }
     res
+}
+
+const fn build_sboxes() -> [u32; 4096] {
+    let mut out = [0u32; 4096];
+    let mut i = 0;
+    while i < 1024 {
+        let col = ((i >> 1) & 0xff) as u32;
+        let row = (i & 1) | ((i & 0x200) >> 8);
+
+        out[i] = ice_perm32(gf_exp7(col ^ ICE_SXOR[0][row], ICE_SMOD[0][row]) << 24);
+        out[1024 + i] = ice_perm32(gf_exp7(col ^ ICE_SXOR[1][row], ICE_SMOD[1][row]) << 16);
+        out[2048 + i] = ice_perm32(gf_exp7(col ^ ICE_SXOR[2][row], ICE_SMOD[2][row]) << 8);
+        out[3072 + i] = ice_perm32(gf_exp7(col ^ ICE_SXOR[3][row], ICE_SMOD[3][row]));
+        i += 1;
+    }
+    out
+}
+
+type IceSboxes = [u32; 4096];
+pub const ICE_SBOXES: IceSboxes = build_sboxes();
+
+#[derive(Clone, Debug)]
+pub struct IceSubkey {
+    val: [u32; 3],
+}
+
+#[derive(Clone, Debug)]
+pub struct IceKeyStruct {
+    size: usize,
+    rounds: usize,
+    pub keysched: Vec<IceSubkey>,
+}
+
+#[derive(Clone, Debug)]
+#[repr(C, align(64))]
+pub struct Ice {
+    sbox: IceSboxes,
+    pub key: IceKeyStruct,
 }
 
 impl Ice {
@@ -105,55 +109,24 @@ impl Ice {
     ///
     /// It is recommended to use Level 0 (or Thin-ICE) for most use cases for performance reasons.
     pub fn new(level: usize, key: &[u8]) -> Self {
-        let mut ik = Ice {
+        let mut ice = Ice {
             key: IceKeyStruct {
                 size: if level < 1 { 1 } else { level },
                 rounds: if level < 1 { 8 } else { level * 16 },
                 keysched: Vec::new(),
             },
-            sbox: IceSboxes::new(),
+            sbox: ICE_SBOXES,
         };
 
-        ik.sboxes_init();
-        ik.key.keysched = vec![IceSubkey { val: [0; 3] }; ik.key.rounds];
-        ik.key_set(key);
-        ik
-    }
-
-    fn sboxes_init(&mut self) {
-        for i in 0..1024 {
-            let col = (i >> 1) & 0xff;
-            let row = (i & 0x1) | ((i & 0x200) >> 8);
-
-            self.sbox.s[0][i] = ice_perm32(
-                gf_exp7(
-                    (col ^ ICE_SXOR[0][row] as usize) as u32,
-                    ICE_SMOD[0][row] as u32,
-                ) << 24,
-            );
-            self.sbox.s[1][i] = ice_perm32(
-                gf_exp7(
-                    (col ^ ICE_SXOR[1][row] as usize) as u32,
-                    ICE_SMOD[1][row] as u32,
-                ) << 16,
-            );
-            self.sbox.s[2][i] = ice_perm32(
-                gf_exp7(
-                    (col ^ ICE_SXOR[2][row] as usize) as u32,
-                    ICE_SMOD[2][row] as u32,
-                ) << 8,
-            );
-            self.sbox.s[3][i] = ice_perm32(gf_exp7(
-                (col ^ ICE_SXOR[3][row] as usize) as u32,
-                ICE_SMOD[3][row] as u32,
-            ));
-        }
+        ice.key.keysched = vec![IceSubkey { val: [0; 3] }; ice.key.rounds];
+        ice.key_set(key);
+        ice
     }
 
     #[inline(always)]
     fn ice_f_batch<const B: usize>(&self, p: [u32; B], sk: &IceSubkey) -> [u32; B] {
         let mut res = [0u32; B];
-        let s = &self.sbox.s;
+        let s = &self.sbox;
         for i in 0..B {
             let val = p[i];
             let tr = (val & 0x3ff) | ((val << 2) & 0xffc00);
@@ -163,10 +136,10 @@ impl Ice {
             let al = al_base ^ tl ^ sk.val[0];
             let ar = al_base ^ tr ^ sk.val[1];
 
-            res[i] = s[0][((al >> 10) & 0x3ff) as usize]
-                | s[1][(al & 0x3ff) as usize]
-                | s[2][((ar >> 10) & 0x3ff) as usize]
-                | s[3][(ar & 0x3ff) as usize];
+            res[i] = s[((al >> 10) & 0x3ff) as usize]
+                | s[1024 + (al & 0x3ff) as usize]
+                | s[2048 + ((ar >> 10) & 0x3ff) as usize]
+                | s[3072 + (ar & 0x3ff) as usize];
         }
         res
     }
