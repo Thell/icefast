@@ -146,6 +146,9 @@ impl Ice {
 
     #[inline(always)]
     fn process_batch<const B: usize, const DECRYPT: bool>(&self, chunk: &mut [u8]) {
+        // Since this fn is inlined we'll help the compiler a bit
+        assert!(chunk.len().is_multiple_of(B));
+
         let mut l = [0u32; B];
         let mut r = [0u32; B];
 
