@@ -277,58 +277,8 @@ impl Ice {
         }
     }
 
-    /// Encrypts the provided data in-place using B 8-byte blocks.
-    ///
-    /// Tail blocks are not processed.
-    ///
-    /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
-    #[allow(unused)]
-    pub fn encrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(8));
-        self.process_batch::<B, false>(data);
-    }
-
-    /// Encrypts the provided data in-place using B 8-byte blocks in parallel.
-    ///
-    /// Tail blocks are not processed.
-    ///
-    /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
-    #[allow(unused)]
-    pub fn encrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(8));
-        data.par_chunks_exact_mut(B * BLOCK_SIZE)
-            .for_each(|c| self.process_batch::<B, false>(c));
-    }
-
-    /// Decrypts the provided data in-place using B 8-byte blocks
-    ///
-    /// Tail blocks are not processed.
-    ///
-    /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
-    #[allow(unused)]
-    pub fn decrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(8));
-        self.process_batch::<B, true>(data);
-    }
-
-    /// Decrypts the provided data in-place using B 8-byte blocks in parallel
-    ///
-    /// Tail blocks are not processed.
-    ///
-    /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
-    #[allow(unused)]
-    pub fn decrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(8));
-        data.par_chunks_exact_mut(B * BLOCK_SIZE)
-            .for_each(|c| self.process_batch::<B, true>(c));
-    }
-
     fn dispatch_auto<const B: usize, const DECRYPT: bool>(&self, data: &mut [u8], parallel: bool) {
-        assert!(data.len().is_multiple_of(8));
+        assert!(data.len().is_multiple_of(BLOCK_SIZE));
         let b_bytes: usize = B * BLOCK_SIZE;
 
         let (head, tail) = {
@@ -346,6 +296,56 @@ impl Ice {
 
         tail.chunks_exact_mut(BLOCK_SIZE)
             .for_each(|b| self.process_batch::<1, DECRYPT>(b));
+    }
+
+    /// Encrypts the provided data in-place using B 8-byte blocks.
+    ///
+    /// Tail blocks are not processed.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
+    pub fn encrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+        self.process_batch::<B, false>(data);
+    }
+
+    /// Encrypts the provided data in-place using B 8-byte blocks in parallel.
+    ///
+    /// Tail blocks are not processed.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
+    pub fn encrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+        data.par_chunks_exact_mut(B * BLOCK_SIZE)
+            .for_each(|c| self.process_batch::<B, false>(c));
+    }
+
+    /// Decrypts the provided data in-place using B 8-byte blocks
+    ///
+    /// Tail blocks are not processed.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
+    pub fn decrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+        self.process_batch::<B, true>(data);
+    }
+
+    /// Decrypts the provided data in-place using B 8-byte blocks in parallel
+    ///
+    /// Tail blocks are not processed.
+    ///
+    /// # Panics
+    /// Panics if `data.len()` is not a multiple of 8.
+    #[allow(unused)]
+    pub fn decrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+        data.par_chunks_exact_mut(B * BLOCK_SIZE)
+            .for_each(|c| self.process_batch::<B, true>(c));
     }
 
     fn key_sched_build(&mut self, kb: &mut [u16; 4], n: usize, keyrot: &[i32]) {
