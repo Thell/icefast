@@ -1,6 +1,7 @@
 use rayon::prelude::*;
 
 const BLOCK_SIZE: usize = 8;
+const AUTO_PAR_THRESHOLD: usize = 16_384;
 
 const KEYROT: [i32; 16] = [0, 1, 2, 3, 2, 1, 3, 0, 1, 3, 2, 0, 3, 1, 0, 2];
 
@@ -147,7 +148,13 @@ impl Ice {
     #[inline(always)]
     fn process_batch<const B: usize, const DECRYPT: bool>(&self, chunk: &mut [u8]) {
         // Since this fn is inlined we'll help the compiler a bit
-        assert!(chunk.len().is_multiple_of(B));
+        // assert!(chunk.len().is_multiple_of(B));
+
+        // Another option is to assert that the chunk.len() == B * BLOCK_SIZE
+        // which will help the compiler build a slide of mov instructions, but
+        // this doesn't actually improve performance in any measurable way and
+        // seems to get slower Slowest times in benchmarks.
+        assert!(chunk.len() == B * BLOCK_SIZE);
 
         let mut l = [0u32; B];
         let mut r = [0u32; B];
@@ -189,113 +196,156 @@ impl Ice {
         }
     }
 
-    /// Encrypts the provided data in-place using serial 8-byte block processing.
+    /// Encrypts the provided data in-place.
     ///
     /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
+    /// Panics if `data.len()` is not a positive multiple of 8.
     pub fn encrypt(&self, data: &mut [u8]) {
-        self.dispatch_auto::<1, false>(data, false);
+        self.dispatch_serial::<false>(data);
     }
 
-    /// Decrypts the provided data in-place using serial 8-byte block processing.
+    /// Decrypts the provided data in-place.
     ///
     /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
+    /// Panics if `data.len()` is not a positive multiple of 8.
     pub fn decrypt(&self, data: &mut [u8]) {
-        self.dispatch_auto::<1, true>(data, false);
+        self.dispatch_serial::<true>(data);
     }
 
-    /// Encrypts the provided data in-place using 8-byte blocks in parallel.
+    #[inline(never)]
+    fn dispatch_serial<const DECRYPT: bool>(&self, data: &mut [u8]) {
+        let len = data.len();
+        assert!(len.is_multiple_of(BLOCK_SIZE) && len >= BLOCK_SIZE);
+
+        let blocks = len / BLOCK_SIZE;
+        let prev_pow_2 = std::cmp::min(1usize << blocks.ilog2(), 512);
+        let pow_2_exponent = prev_pow_2.ilog2();
+
+        match pow_2_exponent {
+            0 => self.process_serial::<1, DECRYPT>(data),
+            1 => self.process_serial::<2, DECRYPT>(data),
+            2 => self.process_serial::<4, DECRYPT>(data),
+            3 => self.process_serial::<8, DECRYPT>(data),
+            4 => self.process_serial::<16, DECRYPT>(data),
+            5 => self.process_serial::<32, DECRYPT>(data),
+            6 => self.process_serial::<64, DECRYPT>(data),
+            7 => self.process_serial::<128, DECRYPT>(data),
+            8 => self.process_serial::<256, DECRYPT>(data),
+            9 => self.process_serial::<512, DECRYPT>(data),
+            _ => unreachable!("pow_2_exponent should be guaranteed to be between 0 and 9"),
+        }
+    }
+
+    fn process_serial<const B: usize, const DECRYPT: bool>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+
+        let batch_size: usize = B * BLOCK_SIZE;
+        let (head, tail) = {
+            let len = (data.len() / batch_size) * batch_size;
+            data.split_at_mut(len)
+        };
+
+        head.chunks_exact_mut(batch_size)
+            .for_each(|c| self.process_batch::<B, DECRYPT>(c));
+
+        if tail.len() >= BLOCK_SIZE {
+            self.dispatch_serial::<DECRYPT>(tail);
+        }
+    }
+
+    /// Encrypts the provided data in-place in parallel.
     ///
     /// # Panics
     /// Panics if `data.len()` is not a multiple of 8.
     pub fn encrypt_par(&self, data: &mut [u8]) {
-        self.dispatch_auto::<1, false>(data, true);
+        self.dispatch_par::<false>(data);
     }
 
-    /// Decrypts the provided data in-place using 8-byte blocks in parallel.
+    /// Decrypts the provided data in-place in parallel.
     ///
     /// # Panics
     /// Panics if `data.len()` is not a multiple of 8.
     pub fn decrypt_par(&self, data: &mut [u8]) {
-        self.dispatch_auto::<1, true>(data, true);
+        self.dispatch_par::<true>(data);
+    }
+
+    #[inline(never)]
+    fn dispatch_par<const DECRYPT: bool>(&self, data: &mut [u8]) {
+        let len = data.len();
+        assert!(len.is_multiple_of(BLOCK_SIZE) && len >= BLOCK_SIZE);
+
+        let blocks = len / BLOCK_SIZE;
+        let prev_pow_2 = std::cmp::min(1usize << blocks.ilog2(), 256);
+        let pow_2_exponent = prev_pow_2.ilog2();
+
+        match pow_2_exponent {
+            0 => self.process_par::<1, DECRYPT>(data),
+            1 => self.process_par::<2, DECRYPT>(data),
+            2 => self.process_par::<4, DECRYPT>(data),
+            3 => self.process_par::<8, DECRYPT>(data),
+            4 => self.process_par::<16, DECRYPT>(data),
+            5 => self.process_par::<32, DECRYPT>(data),
+            6 => self.process_par::<64, DECRYPT>(data),
+            7 => self.process_par::<128, DECRYPT>(data),
+            8 => self.process_par::<256, DECRYPT>(data),
+            _ => unreachable!("pow_2_exponent should be guaranteed to be between 0 and 9"),
+        }
+    }
+
+    fn process_par<const B: usize, const DECRYPT: bool>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+
+        let batch_size: usize = B * BLOCK_SIZE;
+        let (head, tail) = {
+            let len = (data.len() / batch_size) * batch_size;
+            data.split_at_mut(len)
+        };
+
+        head.par_chunks_exact_mut(batch_size)
+            .for_each(|c| self.process_batch::<B, DECRYPT>(c));
+
+        if tail.len() >= BLOCK_SIZE {
+            self.dispatch_par::<DECRYPT>(tail);
+        }
     }
 
     /// Encrypts the provided data in-place.
     ///
-    /// Dynamically selects an optimal batch size (1 to 128 blocks) based on input length.
-    /// Tail blocks are processed serially.
-    ///
-    /// Dispatches to the Rayon thread pool for buffers > 8 KB if available.
+    /// Switches between serial and parallel processing based on input length (16 KB).
     ///
     /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
+    /// Panics if `data.len()` is not a positive multiple of 8.
     #[allow(unused)]
     pub fn encrypt_auto(&self, data: &mut [u8]) {
-        let len = data.len();
-        match len {
-            0..=15 => self.dispatch_auto::<1, false>(data, false),
-            16..=64 => self.dispatch_auto::<2, false>(data, false),
-            65..=128 => self.dispatch_auto::<8, false>(data, false),
-            129..=1024 => self.dispatch_auto::<32, false>(data, false),
-            1025..=8192 => self.dispatch_auto::<128, false>(data, false),
-            _ => {
-                if rayon::current_num_threads() < 2 {
-                    self.dispatch_auto::<128, false>(data, false);
-                    return;
-                }
-                self.dispatch_auto::<128, false>(data, true);
+        if data.len() >= AUTO_PAR_THRESHOLD {
+            if rayon::current_num_threads() < 2 {
+                self.dispatch_serial::<false>(data);
+                return;
             }
+            self.dispatch_par::<false>(data);
+        } else {
+            self.dispatch_serial::<false>(data);
         }
     }
 
     /// Decrypts the provided data in-place.
     ///
-    /// Dynamically selects an optimal batch size (1 to 128 blocks) based on input length.
-    /// Tail blocks are processed serially.
-    ///
-    /// Dispatches to the Rayon thread pool for buffers > 8 KB if available.
+    /// Switches between serial and parallel processing based on input length (16 KB).
     ///
     /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
+    /// Panics if `data.len()` is not a positive multiple of 8.
     #[allow(unused)]
     pub fn decrypt_auto(&self, data: &mut [u8]) {
         let len = data.len();
-        match len {
-            0..=15 => self.dispatch_auto::<1, true>(data, false),
-            16..=64 => self.dispatch_auto::<2, true>(data, false),
-            65..=128 => self.dispatch_auto::<8, true>(data, false),
-            129..=1024 => self.dispatch_auto::<32, true>(data, false),
-            1025..=8192 => self.dispatch_auto::<128, true>(data, false),
-            _ => {
-                if rayon::current_num_threads() < 2 {
-                    self.dispatch_auto::<128, true>(data, false);
-                    return;
-                }
-                self.dispatch_auto::<128, true>(data, true);
+        if len >= AUTO_PAR_THRESHOLD {
+            if rayon::current_num_threads() < 2 {
+                self.dispatch_serial::<true>(data);
+                return;
             }
-        }
-    }
-
-    fn dispatch_auto<const B: usize, const DECRYPT: bool>(&self, data: &mut [u8], parallel: bool) {
-        assert!(data.len().is_multiple_of(BLOCK_SIZE));
-        let b_bytes: usize = B * BLOCK_SIZE;
-
-        let (head, tail) = {
-            let len = (data.len() / b_bytes) * b_bytes;
-            data.split_at_mut(len)
-        };
-
-        if parallel {
-            head.par_chunks_exact_mut(b_bytes)
-                .for_each(|c| self.process_batch::<B, DECRYPT>(c));
+            self.dispatch_par::<true>(data);
         } else {
-            head.chunks_exact_mut(b_bytes)
-                .for_each(|c| self.process_batch::<B, DECRYPT>(c));
+            self.dispatch_serial::<true>(data);
         }
-
-        tail.chunks_exact_mut(BLOCK_SIZE)
-            .for_each(|b| self.process_batch::<1, DECRYPT>(b));
     }
 
     /// Encrypts the provided data in-place using B 8-byte blocks.
@@ -365,7 +415,7 @@ impl Ice {
     }
 
     /// Set the key to be used by the ICE instance.
-    pub fn key_set(&mut self, key: &[u8]) {
+    fn key_set(&mut self, key: &[u8]) {
         let levels = self.key.size;
         if levels == 1 && self.key.rounds == 8 {
             let mut kb = [0u16; 4];
