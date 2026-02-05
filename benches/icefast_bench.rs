@@ -60,9 +60,6 @@ impl_bench_batch!(Blocks128, 128);
 impl_bench_batch!(Blocks256, 256);
 impl_bench_batch!(Blocks512, 512);
 impl_bench_batch!(Blocks1024, 1024);
-impl_bench_batch!(Blocks2048, 2048);
-impl_bench_batch!(Blocks4096, 4096);
-impl_bench_batch!(Blocks8192, 8192);
 
 macro_rules! define_size_benches {
     ($size:expr, $name_suffix:ident, small) => {
@@ -71,7 +68,7 @@ macro_rules! define_size_benches {
             use super::*;
             const LEN: usize = $size;
 
-            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024, Blocks2048, Blocks4096, Blocks8192])]
+            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024])]
             fn decrypt<C: BenchBatch>(bencher: divan::Bencher) {
                 if C::BLOCKS * 8 > LEN { return; }
                 let ice = Ice::new(0, &KEY8);
@@ -90,7 +87,7 @@ macro_rules! define_size_benches {
                     .bench_refs(|mut b| ice.decrypt_auto(&mut b));
             }
 
-            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024, Blocks2048, Blocks4096, Blocks8192])]
+            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024])]
             fn encrypt<C: BenchBatch>(bencher: divan::Bencher) {
                 if C::BLOCKS * 8 > LEN { return; }
                 let ice = Ice::new(0, &KEY8);
@@ -116,7 +113,7 @@ macro_rules! define_size_benches {
             use super::*;
             const LEN: usize = $size;
 
-            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024, Blocks2048, Blocks4096, Blocks8192])]
+            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024])]
             fn decrypt_par<C: BenchBatch>(bencher: divan::Bencher) {
                 if C::BLOCKS * 8 > LEN { return; }
                 let ice = Ice::new(0, &KEY8);
@@ -135,7 +132,7 @@ macro_rules! define_size_benches {
                     .bench_refs(|mut b| ice.decrypt_auto(&mut b));
             }
 
-            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024, Blocks2048, Blocks4096, Blocks8192])]
+            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024])]
             fn encrypt_par<C: BenchBatch>(bencher: divan::Bencher) {
                 if C::BLOCKS * 8 > LEN { return; }
                 let ice = Ice::new(0, &KEY8);
