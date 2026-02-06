@@ -1,7 +1,13 @@
 use rayon::prelude::*;
 
 const BLOCK_SIZE: usize = 8;
-const AUTO_PAR_THRESHOLD: usize = 16_384;
+const AUTO_PAR_THRESHOLD: usize = 32_768;
+
+/// Must be power of 2; match statement implementation is limited to 256
+const MAX_BLOCKS_PER_BATCH_PARALLEL: usize = 256;
+
+/// Must be power of 2; match statement implementation is limited to 512
+const MAX_BLOCKS_PER_BATCH_SERIAL: usize = 512;
 
 const KEYROT: [i32; 16] = [0, 1, 2, 3, 2, 1, 3, 0, 1, 3, 2, 0, 3, 1, 0, 2];
 
@@ -81,7 +87,7 @@ const fn build_sboxes() -> [u32; 4096] {
 }
 
 type IceSboxes = [u32; 4096];
-pub const ICE_SBOXES: IceSboxes = build_sboxes();
+const ICE_SBOXES: IceSboxes = build_sboxes();
 
 #[derive(Clone, Debug)]
 pub struct IceSubkey {
@@ -105,11 +111,16 @@ pub struct Ice {
 impl Ice {
     /// Create a new ICE instance.
     ///
-    /// - `key` should be at least 8 bytes long.
+    /// - `key` must be 8 bytes per `level`.
     /// - `level` must be in the range [0, 2].
     ///
     /// It is recommended to use Level 0 (or Thin-ICE) for most use cases for performance reasons.
     pub fn new(level: usize, key: &[u8]) -> Self {
+        assert!(
+            key.len() >= (if level < 1 { 1 } else { level }) * 8,
+            "ICE key must be at least 8 bytes per level"
+        );
+
         let mut ice = Ice {
             key: IceKeyStruct {
                 size: if level < 1 { 1 } else { level },
@@ -124,10 +135,10 @@ impl Ice {
         ice
     }
 
-    #[inline(always)]
     fn ice_f_batch<const B: usize>(&self, p: [u32; B], sk: &IceSubkey) -> [u32; B] {
         let mut res = [0u32; B];
         let s = &self.sbox;
+
         for i in 0..B {
             let val = p[i];
             let tr = (val & 0x3ff) | ((val << 2) & 0xffc00);
@@ -145,15 +156,8 @@ impl Ice {
         res
     }
 
-    #[inline(always)]
-    fn process_batch<const B: usize, const DECRYPT: bool>(&self, chunk: &mut [u8]) {
-        // Since this fn is inlined we'll help the compiler a bit
-        // assert!(chunk.len().is_multiple_of(B));
-
-        // Another option is to assert that the chunk.len() == B * BLOCK_SIZE
-        // which will help the compiler build a slide of mov instructions, but
-        // this doesn't actually improve performance in any measurable way and
-        // seems to get slower Slowest times in benchmarks.
+    fn process_chunk<const B: usize, const DECRYPT: bool>(&self, chunk: &mut [u8]) {
+        // This assertion allows the compiler to eliminate all bounds checks from the hot loop.
         assert!(chunk.len() == B * BLOCK_SIZE);
 
         let mut l = [0u32; B];
@@ -212,13 +216,13 @@ impl Ice {
         self.dispatch_serial::<true>(data);
     }
 
-    #[inline(never)]
     fn dispatch_serial<const DECRYPT: bool>(&self, data: &mut [u8]) {
         let len = data.len();
+
         assert!(len.is_multiple_of(BLOCK_SIZE) && len >= BLOCK_SIZE);
 
         let blocks = len / BLOCK_SIZE;
-        let prev_pow_2 = std::cmp::min(1usize << blocks.ilog2(), 512);
+        let prev_pow_2 = std::cmp::min(1usize << blocks.ilog2(), MAX_BLOCKS_PER_BATCH_SERIAL);
         let pow_2_exponent = prev_pow_2.ilog2();
 
         match pow_2_exponent {
@@ -237,16 +241,15 @@ impl Ice {
     }
 
     fn process_serial<const B: usize, const DECRYPT: bool>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+        let len = data.len();
 
-        let batch_size: usize = B * BLOCK_SIZE;
-        let (head, tail) = {
-            let len = (data.len() / batch_size) * batch_size;
-            data.split_at_mut(len)
-        };
+        assert!(len.is_multiple_of(BLOCK_SIZE));
 
-        head.chunks_exact_mut(batch_size)
-            .for_each(|c| self.process_batch::<B, DECRYPT>(c));
+        let chunk_size: usize = B * BLOCK_SIZE;
+        let (head, tail) = { data.split_at_mut((len / chunk_size) * chunk_size) };
+
+        head.chunks_exact_mut(chunk_size)
+            .for_each(|c| self.process_chunk::<B, DECRYPT>(c));
 
         if tail.len() >= BLOCK_SIZE {
             self.dispatch_serial::<DECRYPT>(tail);
@@ -269,13 +272,13 @@ impl Ice {
         self.dispatch_par::<true>(data);
     }
 
-    #[inline(never)]
     fn dispatch_par<const DECRYPT: bool>(&self, data: &mut [u8]) {
         let len = data.len();
+
         assert!(len.is_multiple_of(BLOCK_SIZE) && len >= BLOCK_SIZE);
 
         let blocks = len / BLOCK_SIZE;
-        let prev_pow_2 = std::cmp::min(1usize << blocks.ilog2(), 256);
+        let prev_pow_2 = std::cmp::min(1usize << blocks.ilog2(), MAX_BLOCKS_PER_BATCH_PARALLEL);
         let pow_2_exponent = prev_pow_2.ilog2();
 
         match pow_2_exponent {
@@ -288,21 +291,20 @@ impl Ice {
             6 => self.process_par::<64, DECRYPT>(data),
             7 => self.process_par::<128, DECRYPT>(data),
             8 => self.process_par::<256, DECRYPT>(data),
-            _ => unreachable!("pow_2_exponent should be guaranteed to be between 0 and 9"),
+            _ => unreachable!("pow_2_exponent should be guaranteed to be between 0 and 8"),
         }
     }
 
     fn process_par<const B: usize, const DECRYPT: bool>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+        let len = data.len();
 
-        let batch_size: usize = B * BLOCK_SIZE;
-        let (head, tail) = {
-            let len = (data.len() / batch_size) * batch_size;
-            data.split_at_mut(len)
-        };
+        assert!(len.is_multiple_of(BLOCK_SIZE));
 
-        head.par_chunks_exact_mut(batch_size)
-            .for_each(|c| self.process_batch::<B, DECRYPT>(c));
+        let chunk_size: usize = B * BLOCK_SIZE;
+        let (head, tail) = { data.split_at_mut((len / chunk_size) * chunk_size) };
+
+        head.par_chunks_exact_mut(chunk_size)
+            .for_each(|c| self.process_chunk::<B, DECRYPT>(c));
 
         if tail.len() >= BLOCK_SIZE {
             self.dispatch_par::<DECRYPT>(tail);
@@ -311,7 +313,7 @@ impl Ice {
 
     /// Encrypts the provided data in-place.
     ///
-    /// Switches between serial and parallel processing based on input length (16 KB).
+    /// Switches between serial and parallel processing based on input length (32 KB).
     ///
     /// # Panics
     /// Panics if `data.len()` is not a positive multiple of 8.
@@ -330,7 +332,7 @@ impl Ice {
 
     /// Decrypts the provided data in-place.
     ///
-    /// Switches between serial and parallel processing based on input length (16 KB).
+    /// Switches between serial and parallel processing based on input length (32 KB).
     ///
     /// # Panics
     /// Panics if `data.len()` is not a positive multiple of 8.
@@ -350,52 +352,46 @@ impl Ice {
 
     /// Encrypts the provided data in-place using B 8-byte blocks.
     ///
-    /// Tail blocks are not processed.
-    ///
     /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
+    /// Panics if `data.len()` is not a positive multiple of B.
     #[allow(unused)]
-    pub fn encrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(BLOCK_SIZE));
-        self.process_batch::<B, false>(data);
+    pub fn encrypt_chunks<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE) && data.len() >= B * BLOCK_SIZE);
+        data.chunks_exact_mut(B * BLOCK_SIZE)
+            .for_each(|c| self.process_chunk::<B, false>(c));
     }
 
     /// Encrypts the provided data in-place using B 8-byte blocks in parallel.
     ///
-    /// Tail blocks are not processed.
-    ///
     /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
+    /// Panics if `data.len()` is not a positive multiple of B.
     #[allow(unused)]
-    pub fn encrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+    pub fn encrypt_chunks_par<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE) && data.len() >= B * BLOCK_SIZE);
         data.par_chunks_exact_mut(B * BLOCK_SIZE)
-            .for_each(|c| self.process_batch::<B, false>(c));
+            .for_each(|c| self.process_chunk::<B, false>(c));
     }
 
     /// Decrypts the provided data in-place using B 8-byte blocks
     ///
-    /// Tail blocks are not processed.
-    ///
     /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
+    /// Panics if `data.len()` is not a positive multiple of B.
     #[allow(unused)]
-    pub fn decrypt_blocks<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(BLOCK_SIZE));
-        self.process_batch::<B, true>(data);
+    pub fn decrypt_chunks<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE) && data.len() >= B * BLOCK_SIZE);
+        data.chunks_exact_mut(B * BLOCK_SIZE)
+            .for_each(|c| self.process_chunk::<B, true>(c));
     }
 
     /// Decrypts the provided data in-place using B 8-byte blocks in parallel
     ///
-    /// Tail blocks are not processed.
-    ///
     /// # Panics
-    /// Panics if `data.len()` is not a multiple of 8.
+    /// Panics if `data.len()` is not a positive multiple of B.
     #[allow(unused)]
-    pub fn decrypt_blocks_par<const B: usize>(&self, data: &mut [u8]) {
-        assert!(data.len().is_multiple_of(BLOCK_SIZE));
+    pub fn decrypt_chunks_par<const B: usize>(&self, data: &mut [u8]) {
+        assert!(data.len().is_multiple_of(BLOCK_SIZE) && data.len() >= B * BLOCK_SIZE);
         data.par_chunks_exact_mut(B * BLOCK_SIZE)
-            .for_each(|c| self.process_batch::<B, true>(c));
+            .for_each(|c| self.process_chunk::<B, true>(c));
     }
 
     fn key_sched_build(&mut self, kb: &mut [u16; 4], n: usize, keyrot: &[i32]) {

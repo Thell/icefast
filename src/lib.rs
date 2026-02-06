@@ -4,35 +4,40 @@
 //! [ICE (Information Concealment Engine)](https://www.darkside.com.au/ice/)
 //! encryption algorithm.
 //!
-//! `Icefast` is designed specifically to assist the LLVM compiler in performing
-//! **auto-vectorization**. By structuring internal loops with clear bounds and memory
-//! alignment, the library leverages **AVX2**, **AVX-512**, and **NEON** instruction
-//! sets where available. This allows for processing multiple 64-bit blocks in a single
-//! clock cycle.
+//! **Important:** ICE is an older block cipher and is **not considered
+//! cryptographically secure** by modern standards. With contemporary hardware, especially GPUs
+//! and large precomputed tables, it can be attacked far more efficiently than modern ciphers.
+//! `Icefast` is intended for compatibility, experimentation, and educational use.
+//! **It is not for protecting sensitive data.**
 //!
-//! Supports ICE level 0, 1 and 2.
+//! `Icefast` is built to give the compiler the best possible chance at **auto‑vectorizing** the
+//! hot loops and generating efficient jump tables. The internal loops use fixed bounds and
+//! aligned memory access so the compiler can emit **AVX2**, **AVX‑512**, or **NEON** instructions
+//! when it decides they’re beneficial for a particular loop. The dispatch layer is also fully
+//! specialized at compile time to reduce branching and minimize overhead.
 //!
-//! ### Auto-Dispatch Logic
-//! The library provides intelligent dispatching to balance latency and throughput:
+//! Supports ICE level 0 (Thin-ICE), 1 and 2.
+//!
+//! ### Dispatching Logic
+//! The library provides dispatching to balance latency and throughput:
 //! * **Serial Path**: Used for smaller buffers to avoid the overhead of thread synchronization.
-//! * **Parallel Path**: Utilizes Rayon for work-stealing parallelism on large data chunks (> 8 KB).
-//! * **Tail Handling**: The `_auto` methods process primary batches of size `B`, while
-//!   automatically handling the remaining 8-byte blocks in a final serial pass.
+//! * **Parallel Path**: Utilizes Rayon for work-stealing parallelism on large data chunks (> 32 KB).
+//! * **Tail Handling**: Recursive dispatch, using smaller block counts, is used to process the tail.
 //!
 //! ## Requirements
 //! * **Alignment**: All input buffers must be multiples of the 8-byte ICE block size.
-//!   Operations on unaligned buffers will result in an explicit panic to ensure
-//!   data integrity.
+//! * **Data Size**: Manual `_chunk` processing functions require:
+//!   - `B` to be a power of two
+//!   - `data.len() >= B * 8` (where `8` is the BLOCK_SIZE constant)
 //!
 //! ## API Selection
 //!
-//! * **General Use**: Use `encrypt_auto` and `decrypt_auto`. These manage batch sizes
-//!   and thread dispatching automatically to find the best balance for the data size.
-//! * **Serial Processing**: Use `encypt` and `decrypt` to process 8-byte blocks serially.
-//! * **Manual Parallelism**: Use `encrypt_par` or `decrypt_par` if you know you want
-//!   multithreading regardless of the 8 KB default threshold.
-//! * **High-Frequency Loops**: Use `encrypt_blocks<B>` with a fixed `B` to provide
-//!   the compiler with the best opportunity for unrolling and SIMD generation.
+//! * **General Use**: Use `encrypt_auto` and `decrypt_auto`. Serial and parallel
+//!   processing is automatically selected based on buffer size and tail processing is handled.
+//! * **Serial Processing**: Use `encrypt` and `decrypt` to process serially with tail handling.
+//! * **Parallel Processing**: Use `encrypt_par` or `decrypt_par` to process in parallel with tail handling.
+//! * **High-Frequency Loops**: Use the `_chunks<B>` and `_chunks_par<B>` variants to bypass
+//!   dispatching and tail processing.
 //!
 //! ## Performance
 //! * **Benchmarks**: Run `cargo bench` to see performance comparisons between

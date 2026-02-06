@@ -6,8 +6,13 @@ static GLOBAL: MiMalloc = MiMalloc;
 use divan::counter::BytesCount;
 use icefast::Ice;
 
+// NOTE: Because encryption and decryption are the same logical steps,
+//       and generating the bnech functions takes a lot of time, we can
+//       reuse the same benchmark.
+//       The commented out code is for future reference/testing.
+
 static KEY8: [u8; 8] = [0x51, 0xF3, 0x0F, 0x11, 0x04, 0x24, 0x6A, 0x00];
-static PLAIN_TEXT_8: &str = "abcdefgh";
+// static PLAIN_TEXT_8: &str = "abcdefgh";
 static CIPHER_TEXT_8_LEVEL0: [u8; 8] = [195, 233, 103, 103, 181, 234, 50, 163];
 
 fn main() {
@@ -18,8 +23,8 @@ trait BenchBatch {
     const BLOCKS: usize;
     fn run_decrypt(ice: &Ice, data: &mut [u8]);
     fn run_decrypt_par(ice: &Ice, data: &mut [u8]);
-    fn run_encrypt(ice: &Ice, data: &mut [u8]);
-    fn run_encrypt_par(ice: &Ice, data: &mut [u8]);
+    // fn run_encrypt(ice: &Ice, data: &mut [u8]);
+    // fn run_encrypt_par(ice: &Ice, data: &mut [u8]);
 }
 
 macro_rules! impl_bench_batch {
@@ -30,21 +35,21 @@ macro_rules! impl_bench_batch {
             #[inline(always)]
             fn run_decrypt(ice: &Ice, data: &mut [u8]) {
                 data.chunks_exact_mut($n * 8)
-                    .for_each(|chunk| ice.decrypt_blocks::<$n>(chunk));
+                    .for_each(|chunk| ice.decrypt_chunks::<$n>(chunk));
             }
             #[inline(always)]
             fn run_decrypt_par(ice: &Ice, data: &mut [u8]) {
-                ice.decrypt_blocks_par::<$n>(data);
+                ice.decrypt_chunks_par::<$n>(data);
             }
-            #[inline(always)]
-            fn run_encrypt(ice: &Ice, data: &mut [u8]) {
-                data.chunks_exact_mut($n * 8)
-                    .for_each(|chunk| ice.encrypt_blocks::<$n>(chunk));
-            }
-            #[inline(always)]
-            fn run_encrypt_par(ice: &Ice, data: &mut [u8]) {
-                ice.encrypt_blocks_par::<$n>(data);
-            }
+            // #[inline(always)]
+            // fn run_encrypt(ice: &Ice, data: &mut [u8]) {
+            //     data.chunks_exact_mut($n * 8)
+            //         .for_each(|chunk| ice.encrypt_blocks::<$n>(chunk));
+            // }
+            // #[inline(always)]
+            // fn run_encrypt_par(ice: &Ice, data: &mut [u8]) {
+            //     ice.encrypt_blocks_par::<$n>(data);
+            // }
         }
     };
 }
@@ -59,7 +64,6 @@ impl_bench_batch!(Blocks64, 64);
 impl_bench_batch!(Blocks128, 128);
 impl_bench_batch!(Blocks256, 256);
 impl_bench_batch!(Blocks512, 512);
-impl_bench_batch!(Blocks1024, 1024);
 
 macro_rules! define_size_benches {
     ($size:expr, $name_suffix:ident, small) => {
@@ -68,7 +72,7 @@ macro_rules! define_size_benches {
             use super::*;
             const LEN: usize = $size;
 
-            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024])]
+            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512])]
             fn decrypt<C: BenchBatch>(bencher: divan::Bencher) {
                 if C::BLOCKS * 8 > LEN { return; }
                 let ice = Ice::new(0, &KEY8);
@@ -86,34 +90,16 @@ macro_rules! define_size_benches {
                     .with_inputs(|| CIPHER_TEXT_8_LEVEL0.repeat(LEN / 8))
                     .bench_refs(|mut b| ice.decrypt_auto(&mut b));
             }
-
-            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024])]
-            fn encrypt<C: BenchBatch>(bencher: divan::Bencher) {
-                if C::BLOCKS * 8 > LEN { return; }
-                let ice = Ice::new(0, &KEY8);
-                bencher
-                    .counter(BytesCount::new(LEN))
-                    .with_inputs(|| PLAIN_TEXT_8.repeat(LEN / 8).into_bytes())
-                    .bench_refs(|mut b| C::run_encrypt(&ice, &mut b));
-            }
-
-            #[divan::bench]
-            fn encrypt_auto(bencher: divan::Bencher) {
-                let ice = Ice::new(0, &KEY8);
-                bencher
-                    .counter(BytesCount::new(LEN))
-                    .with_inputs(|| PLAIN_TEXT_8.repeat(LEN / 8).into_bytes())
-                    .bench_refs(|mut b| ice.encrypt_auto(&mut b));
-            }
         }
     };
+
     ($size:expr, $name_suffix:ident, large) => {
         #[divan::bench_group(sample_count=2_000)]
         mod $name_suffix {
             use super::*;
             const LEN: usize = $size;
 
-            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024])]
+            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512])]
             fn decrypt_par<C: BenchBatch>(bencher: divan::Bencher) {
                 if C::BLOCKS * 8 > LEN { return; }
                 let ice = Ice::new(0, &KEY8);
@@ -130,25 +116,6 @@ macro_rules! define_size_benches {
                     .counter(BytesCount::new(LEN))
                     .with_inputs(|| CIPHER_TEXT_8_LEVEL0.repeat(LEN / 8))
                     .bench_refs(|mut b| ice.decrypt_auto(&mut b));
-            }
-
-            #[divan::bench(types = [Blocks1, Blocks2, Blocks4, Blocks8, Blocks16, Blocks32, Blocks64, Blocks128, Blocks256, Blocks512, Blocks1024])]
-            fn encrypt_par<C: BenchBatch>(bencher: divan::Bencher) {
-                if C::BLOCKS * 8 > LEN { return; }
-                let ice = Ice::new(0, &KEY8);
-                bencher
-                    .counter(BytesCount::new(LEN))
-                    .with_inputs(|| PLAIN_TEXT_8.repeat(LEN / 8).into_bytes())
-                    .bench_refs(|mut b| C::run_encrypt_par(&ice, &mut b));
-            }
-
-            #[divan::bench]
-            fn encrypt_auto(bencher: divan::Bencher) {
-                let ice = Ice::new(0, &KEY8);
-                bencher
-                    .counter(BytesCount::new(LEN))
-                    .with_inputs(|| PLAIN_TEXT_8.repeat(LEN / 8).into_bytes())
-                    .bench_refs(|mut d| ice.encrypt_auto(&mut d))
             }
         }
     };
@@ -170,8 +137,6 @@ define_size_benches!(32768, serial_kb_32, small);
 define_size_benches!(65536, serial_kb_64, small);
 define_size_benches!(131072, serial_kb_128, small);
 define_size_benches!(262144, serial_kb_256, small);
-define_size_benches!(524288, serial_kb_512, small);
-define_size_benches!(1048576, serial_mb_1, small);
 
 // Overlap - Parallel
 define_size_benches!(16, parallel_b_16, large);
@@ -194,8 +159,9 @@ define_size_benches!(1048576, parallel_mb_1, large);
 define_size_benches!(33554432, parallel_mb_32, large);
 
 ////////////////////////////////////////////////////////////////////
-
 // This benches what decrypting many random length files looks like
+// when decrypting packaged files of mixed lengths based upon a weighted
+// distribution of lengths from a real-world dataset.
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::Rng;
 use rand_chacha::rand_core::SeedableRng;
