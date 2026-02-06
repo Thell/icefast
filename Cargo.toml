@@ -1,6 +1,6 @@
 [package]
 name = "icefast"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2024"
 authors = ["Thell Fowler <thell@tbfowler.net>"]
 description = "A optimized parallel ICE encryption implementation with auto-dispatching logic and auto-vectorization."
